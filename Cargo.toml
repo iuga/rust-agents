@@ -1,0 +1,22 @@
+[package]
+name = "rust-agent"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+rig = "0.42.0"
+rmcp = {
+    version = "3.3.0",
+    features = [
+        "server",
+        "macros",
+        "transport-streamable-http-server"
+    ]
+}
+serde = "1.0.229"
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-util = "0.7.19"
