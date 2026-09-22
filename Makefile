@@ -15,3 +15,9 @@ build: ## Run the Agent framework
 build: ## Run the MCP inspector
 	npx @modelcontextprotocol/inspector
 
+
+lance-data-viewer:
+	docker run --rm -p 8086:8080 \
+    	-v ./data.db:/data:ro \
+    	ghcr.io/lance-format/lance-data-viewer:lancedb-0.36.0
+

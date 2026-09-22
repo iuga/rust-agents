@@ -1,38 +1,29 @@
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-};
-use tokio_util::sync::CancellationToken;
-use tokio::signal;
+use rig::prelude::*;
+use rig::providers::ollama;
+use rust_agent::Server;
+use rust_agent::rag::Rag;
+use rust_agent::storage::Storage;
 
-mod agents;
-mod mcp;
-mod tools;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
 
-    let cancellation_token = CancellationToken::new();
+    let mut storage = Storage::new();
+    if let Err(err) = storage.connect("data.db").await {
+        panic!("Failed to connect to the database: {}", err);
+    };
+    
+    let client = ollama::Client::from_env()?;
+    let embed_model = client.embedding_model("qwen3-embedding:8b");
 
-    let service: StreamableHttpService<mcp::MCPServer, LocalSessionManager> =
-        StreamableHttpService::new(
-            || Ok(mcp::MCPServer::new()),
-            LocalSessionManager::default().into(),
-            StreamableHttpServerConfig::default()
-                .with_cancellation_token(cancellation_token.child_token()),
-        );
+    let paths = vec!["/Users/estebandelboca/bcroot/Obsidian/Bluecore/".to_string()];
+    let rag = Rag::new(paths, ".*md", ".*porygon.*", embed_model, storage);
+    if let Err(err) = rag.update().await {
+        println!("Error updating the RAG: {}", err);
+    }
 
-    let app = axum::Router::new().nest_service("/mcp", service);
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8000").await?;
-
-    println!("MCP server listening on http://127.0.0.1:8000/mcp");
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            signal::ctrl_c().await.ok();
-            cancellation_token.cancel();
-        })
+    Server::new(String::from("127.0.0.1:8000"))
+        .mcp()
         .await?;
-
     Ok(())
 }
