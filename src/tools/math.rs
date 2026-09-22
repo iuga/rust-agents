@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rig::{tool::Tool};
+use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 

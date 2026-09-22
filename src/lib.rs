@@ -1,15 +1,15 @@
 use anyhow::Result;
 use rmcp::transport::streamable_http_server::{
-    session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 
 mod agents;
 mod mcp;
-mod tools;
 pub mod rag;
 pub mod storage;
+mod tools;
 
 pub struct Server {
     addr: String,
