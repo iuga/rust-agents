@@ -41,13 +41,13 @@ impl<T: EmbeddingModel> Rag<T> {
         storage: Storage,
     ) -> Self {
         Rag {
-            paths,
             include: Regex::new(include).unwrap(),
             exclude: Regex::new(exclude).unwrap(),
             supported: Regex::new(".*.md").unwrap(),
-            model: model,
-            storage: storage,
             hashes: HashMap::new(),
+            paths,
+            model,
+            storage,
         }
     }
 
@@ -127,12 +127,12 @@ impl<T: EmbeddingModel> Rag<T> {
     }
 
     fn chunks(&self, content: &str) -> Vec<Vec<char>> {
-        return content
+        content
             .chars()
             .collect::<Vec<char>>()
             .chunks(4096)
             .map(|chunk| chunk.to_vec())
-            .collect::<Vec<Vec<char>>>();
+            .collect::<Vec<Vec<char>>>()
     }
 
     fn is_hidden(&self, entry: &DirEntry) -> bool {
@@ -156,15 +156,15 @@ impl<T: EmbeddingModel> Rag<T> {
         {
             return false;
         }
-        let docs = self.storage.get_by_filename(&filename).await;
-        match docs {
+
+        match self.storage.get_by_filename(filename).await {
             Ok(stored_docs) => {
                 for sdoc in stored_docs {
                     if sdoc.hash == hash {
                         return false;
                     }
                 }
-                return true;
+                true
             }
             Err(err) => {
                 println!("[err] loading the doc from storage: {}", err);

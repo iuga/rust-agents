@@ -1,0 +1,39 @@
+# Setup:
+#   rustup component add rustfmt clippy
+#   cargo install cargo-audit --locked
+#   pre-commit install
+# Run all checks manually: pre-commit run --all-files
+# Audit fetches advisory data and may require network access.
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check --workspace --all-targets --locked
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --workspace --locked
+        language: system
+        pass_filenames: false
+        always_run: true
+#      - id: cargo-audit
+#        name: cargo audit
+#        entry: cargo audit
+#        language: system
+#        pass_filenames: false
+#        always_run: true

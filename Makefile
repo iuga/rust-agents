@@ -21,3 +21,5 @@ lance-data-viewer:
     	-v ./data.db:/data:ro \
     	ghcr.io/lance-format/lance-data-viewer:lancedb-0.36.0
 
+fmt:
+	cargo fmt

@@ -17,7 +17,7 @@ pub struct Server {
 
 impl Server {
     pub fn new(addr: String) -> Self {
-        Server { addr: addr }
+        Server { addr }
     }
 
     pub async fn mcp(&self) -> Result<(), anyhow::Error> {

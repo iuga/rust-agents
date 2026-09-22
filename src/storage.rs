@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use lancedb::{
     Connection,
     arrow::{
@@ -10,7 +10,6 @@ use lancedb::{
         arrow_schema::{ArrowError, DataType, Field, Schema, TimeUnit},
     },
     connect,
-    data::scannable::Scannable,
     expr::{col, lit},
     query::{ColumnOrdering, ExecutableQuery, QueryBase},
 };
@@ -45,7 +44,7 @@ impl DocumentRow {
             filename: filename.to_string(),
             content: content.to_string(),
             hash: hash.to_string(),
-            embedding: embedding,
+            embedding,
         }
     }
 
@@ -112,7 +111,7 @@ impl Storage {
     /// Panics if `d.embedding` does not contain exactly 4096 values.
     pub async fn insert(&self, d: &DocumentRow) -> Result<(), lancedb::Error> {
         let table = self.get_table().await?;
-        let batch = self.document_to_batch(&d)?;
+        let batch = self.document_to_batch(d)?;
         let _ = table.add(batch).execute().await?;
         Ok(())
     }
