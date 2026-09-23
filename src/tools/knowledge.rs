@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
 use rig::tool::Tool;
@@ -23,7 +24,7 @@ pub struct KnowledgeArgs {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("Knowledge query failed: {0}")]
+#[error("Knowledge query failed: {0:#}")]
 pub struct KnowledgeError(#[from] anyhow::Error);
 
 impl Tool for Knowledge {
@@ -55,9 +56,23 @@ impl Tool for Knowledge {
         _context: &mut rig::tool::ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
-        println!("[tool-call] Knowledge query: {}", args.query);
+        let started = Instant::now();
+        eprintln!("[tool-call] Knowledge query: {}", args.query);
 
-        let chunks = self.rag.query(&args.query).await?;
+        let chunks = self.rag.query(&args.query).await.map_err(|error| {
+            eprintln!(
+                "[tool-error] Knowledge query {:?} failed after {:?}: {error:#}",
+                args.query,
+                started.elapsed(),
+            );
+            KnowledgeError(error)
+        })?;
+        eprintln!(
+            "[tool-result] Knowledge query {:?}: {} chunks in {:?}",
+            args.query,
+            chunks.len(),
+            started.elapsed(),
+        );
         if chunks.is_empty() {
             return Ok("No matching documents found.".to_string());
         }

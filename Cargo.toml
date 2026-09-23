@@ -29,3 +29,4 @@ futures = "0.3.34"
 serde_arrow = { version = "0.15.1", features = ["arrow-58"] }
 chrono = "0.4.45"
 config = "0.15.26"
+chunkedrs = "2.1.1"

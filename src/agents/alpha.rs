@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
+use rig::Agent;
 use rig::memory::InMemoryConversationMemory;
 use rig::prelude::*;
 use rig::providers::ollama;
-
-use crate::{rag::KnowledgeBase, tools::knowledge::Knowledge};
+use rig::tool::DynamicTool;
 
 const PREAMBLE: &str = r#"## Role and scope
 You are a specialist agent for the company's business domain, systems, and processes.
@@ -45,16 +43,21 @@ Include assumptions that affect the result. Summarize the work without narrating
 tool call.
 "#;
 
-pub fn new(rag: Arc<dyn KnowledgeBase>) -> Option<rig::Agent> {
-    let memory = InMemoryConversationMemory::new();
+pub fn new(subagents: Vec<Agent>) -> Option<Agent> {
+    let tools: Vec<DynamicTool> = subagents
+        .into_iter()
+        .map(|agent| agent.into_tool())
+        .collect();
 
-    Some(
-        ollama::Client::from_env()
-            .ok()?
-            .agent("gemma4")
-            .memory(memory)
-            .preamble(PREAMBLE)
-            .tool(Knowledge::new(rag))
-            .build(),
-    )
+    let client = ollama::Client::from_env().ok()?;
+
+    let agent = client
+        .agent("gemma4")
+        .memory(InMemoryConversationMemory::new())
+        .preamble(PREAMBLE)
+        .default_max_turns(50)
+        .dynamic_tools(tools)
+        .build();
+
+    Some(agent)
 }

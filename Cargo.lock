@@ -998,6 +998,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chunkedrs"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba641e54e077010fa3fc85e99310004b89857405636366c3bf33b5b1dd9eca75"
+dependencies = [
+ "tiktoken",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7268,6 +7277,7 @@ dependencies = [
  "anyhow",
  "axum 0.8.9",
  "chrono",
+ "chunkedrs",
  "config",
  "futures",
  "lancedb 0.39.0",
@@ -7415,6 +7425,15 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "ruzstd"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a252f5e20f038fe7b4ea53e073e65398d652c864cc162fc77c56c2f13717b888"
+dependencies = [
+ "twox-hash",
+]
 
 [[package]]
 name = "ryu"
@@ -8176,6 +8195,17 @@ dependencies = [
  "quick-error",
  "weezl",
  "zune-jpeg",
+]
+
+[[package]]
+name = "tiktoken"
+version = "4.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40ba662e4a36f3db9561d09f1ba085f719aaf393b7dbd71e23a2e16b8e4e4e19"
+dependencies = [
+ "regex",
+ "rustc-hash",
+ "ruzstd",
 ]
 
 [[package]]

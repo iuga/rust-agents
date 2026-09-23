@@ -8,6 +8,7 @@ use tokio::signal;
 use tokio_util::sync::CancellationToken;
 
 mod agents;
+pub mod config;
 mod mcp;
 pub mod rag;
 pub mod storage;

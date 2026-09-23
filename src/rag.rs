@@ -1,8 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::future::BoxFuture;
 use regex::Regex;
 use rig::embeddings::EmbeddingModel;
 use sha2::{Digest, Sha256};
+use std::path::Path;
 use std::{collections::HashMap, fs};
 use walkdir::{DirEntry, WalkDir};
 
@@ -64,11 +65,21 @@ impl<T: EmbeddingModel> Rag<T> {
     }
 
     pub async fn query(&self, query: &str) -> Result<Vec<DocumentChunk>> {
-        let query_embedding = self.model.embed_text(query).await?;
+        let query_embedding = self
+            .model
+            .embed_text(query)
+            .await
+            .context("Failed to embed knowledge query")?;
+        let dimensions = query_embedding.vec.len();
         let answers = self
             .storage
             .query(query_embedding.vec)
-            .await?
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to search knowledge storage with {dimensions}-dimensional embedding"
+                )
+            })?
             .into_iter()
             .map(DocumentChunk::from)
             .collect();
@@ -90,7 +101,7 @@ impl<T: EmbeddingModel> Rag<T> {
                 println!("~> Indexing file {filename}");
                 self.storage.delete_by_filename(&filename).await?;
 
-                for chunk in self.chunks(&content) {
+                for chunk in self.chunks(&filename, &content) {
                     let text: String = chunk.into_iter().collect();
                     let embedding = self.model.embed_text(&text).await?;
                     let row = DocumentRow::new(
@@ -138,12 +149,22 @@ impl<T: EmbeddingModel> Rag<T> {
         files
     }
 
-    fn chunks(&self, content: &str) -> Vec<Vec<char>> {
-        content
-            .chars()
-            .collect::<Vec<char>>()
-            .chunks(4096)
-            .map(|chunk| chunk.to_vec())
+    fn chunks(&self, filename: &str, content: &str) -> Vec<Vec<char>> {
+        let extension = Path::new(filename).extension().and_then(|ext| ext.to_str());
+
+        let builder = match extension {
+            Some("md") => chunkedrs::chunk(content).markdown(),
+            Some(_) | None => chunkedrs::chunk(content).max_tokens(256).overlap(50),
+        };
+
+        builder
+            .split()
+            .iter()
+            .map(|c| {
+                format!("{}\n{}", c.section_path.join(" "), c.content)
+                    .chars()
+                    .collect::<Vec<char>>()
+            })
             .collect::<Vec<Vec<char>>>()
     }
 

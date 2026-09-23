@@ -1,5 +1,3 @@
-use std::{collections::HashMap, sync::Arc};
-
 use crate::{agents, rag::KnowledgeBase};
 use rig::completion::Prompt;
 use rmcp::{
@@ -9,7 +7,7 @@ use rmcp::{
     model::{ServerCapabilities, ServerInfo},
     schemars, tool, tool_handler, tool_router,
 };
-use tokio::sync::Mutex;
+use std::sync::Arc;
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct ChatArguments {
@@ -17,10 +15,6 @@ struct ChatArguments {
         description = "Conversation ID. Reuse the same ID to continue an existing discussion or task; use a new ID for an unrelated request."
     )]
     id: String,
-    #[schemars(
-        description = "Specialist agent profile to use. Currently supported: alpha, the company business-domain specialist."
-    )]
-    profile: String,
     #[schemars(
         description = "Task to delegate and the desired outcome. Include relevant context, target entities or services, environment, identifiers, constraints, and how to determine completion. Describe what should be accomplished and any required steps or output format."
     )]
@@ -30,16 +24,19 @@ struct ChatArguments {
 #[derive(Clone)]
 pub struct MCPServer {
     tool_router: ToolRouter<Self>,
-    agents: Arc<Mutex<HashMap<String, rig::Agent>>>,
-    rag: Arc<dyn KnowledgeBase>,
+    agent: rig::Agent,
 }
 
 impl MCPServer {
     pub fn new(rag: Arc<dyn KnowledgeBase>) -> Self {
+        let gamma = agents::gamma::new(Arc::clone(&rag)).unwrap();
+        let subagents = vec![gamma];
+
+        let agent = agents::alpha::new(subagents).unwrap();
+
         Self {
             tool_router: Self::tool_router(),
-            agents: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            rag,
+            agent,
         }
     }
 }
@@ -58,26 +55,17 @@ impl MCPServer {
     )]
     async fn chat(
         &self,
-        Parameters(ChatArguments {
-            id,
-            profile,
-            message,
-        }): Parameters<ChatArguments>,
+        Parameters(ChatArguments { id, message }): Parameters<ChatArguments>,
     ) -> Result<CallToolResult, McpError> {
-        println!("[agent-call] Query [{}/{}]: {}", id, profile, message);
-        let mut agents = self.agents.lock().await;
-        let agent = agents.entry(id.to_string()).or_insert_with(|| {
-            match profile.as_str() {
-                "alpha" => agents::alpha::new(Arc::clone(&self.rag)).unwrap(),
-                // "beta" => agents::beta::new().unwrap(),
-                _ => agents::alpha::new(Arc::clone(&self.rag)).unwrap(),
-            }
-        });
-        let response = agent
+        println!("[agent-call] Query [{}]: {}", id, message);
+
+        let response = self
+            .agent
             .prompt(message.to_string())
             .max_turns(5)
             .conversation(id)
             .await;
+
         match response {
             Ok(answer) => Ok(CallToolResult::success(vec![ContentBlock::text(
                 answer.to_string(),
