@@ -1,0 +1,11 @@
+agents:
+  model: "gemma4:12b"
+knowledge:
+  include: "*.md"
+  exclude: ".*porygon/.*"
+  database_uri: "data.db"
+  model: "qwen3-embedding:8b"
+  folders:
+    - "/Users/iuga/documents"
+server:
+  host: "127.0.0.1:8000"

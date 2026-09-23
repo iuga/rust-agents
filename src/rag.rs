@@ -1,4 +1,5 @@
 use anyhow::Result;
+use futures::future::BoxFuture;
 use regex::Regex;
 use rig::embeddings::EmbeddingModel;
 use sha2::{Digest, Sha256};
@@ -11,6 +12,11 @@ use crate::storage::{DocumentRow, Storage};
 pub struct DocumentChunk {
     pub filename: String,
     pub content: String,
+}
+
+/// Model-independent, shared access to knowledge retrieval.
+pub trait KnowledgeBase: Send + Sync {
+    fn query<'a>(&'a self, query: &'a str) -> BoxFuture<'a, Result<Vec<DocumentChunk>>>;
 }
 
 impl From<DocumentRow> for DocumentChunk {
@@ -30,6 +36,12 @@ pub struct Rag<T: EmbeddingModel> {
     model: T,
     storage: Storage,
     hashes: HashMap<String, String>,
+}
+
+impl<T: EmbeddingModel> KnowledgeBase for Rag<T> {
+    fn query<'a>(&'a self, query: &'a str) -> BoxFuture<'a, Result<Vec<DocumentChunk>>> {
+        Box::pin(Rag::query(self, query))
+    }
 }
 
 impl<T: EmbeddingModel> Rag<T> {

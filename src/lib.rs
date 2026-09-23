@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
@@ -20,12 +22,12 @@ impl Server {
         Server { addr }
     }
 
-    pub async fn mcp(&self) -> Result<(), anyhow::Error> {
+    pub async fn mcp(&self, rag: Arc<dyn rag::KnowledgeBase>) -> Result<(), anyhow::Error> {
         let cancellation_token = CancellationToken::new();
 
         let service: StreamableHttpService<mcp::MCPServer, LocalSessionManager> =
             StreamableHttpService::new(
-                || Ok(mcp::MCPServer::new()),
+                move || Ok(mcp::MCPServer::new(Arc::clone(&rag))),
                 LocalSessionManager::default().into(),
                 StreamableHttpServerConfig::default()
                     .with_cancellation_token(cancellation_token.child_token()),
