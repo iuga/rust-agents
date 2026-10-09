@@ -29,8 +29,9 @@ pub struct MCPServer {
 
 impl MCPServer {
     pub fn new(rag: Arc<dyn KnowledgeBase>) -> Self {
+        let beta = agents::beta::new().unwrap();
         let gamma = agents::gamma::new(Arc::clone(&rag)).unwrap();
-        let subagents = vec![gamma];
+        let subagents = vec![beta, gamma];
 
         let agent = agents::alpha::new(subagents).unwrap();
 
