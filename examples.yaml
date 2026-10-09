@@ -1,5 +1,18 @@
 agents:
-  model: "gemma4:12b"
+  alpha:
+    model: "gemma4:12b"
+    skills:
+      - "./skills/coordination"
+  beta:
+    model: "gemma4:12b"
+    skills:
+      - "./skills/engineering"
+      - "./skills/shared"
+  gamma:
+    model: "gemma4:12b"
+    skills:
+      - "./skills/research"
+      - "./skills/shared"
 knowledge:
   include: "*.md"
   exclude: ".*porygon/.*"

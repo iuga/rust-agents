@@ -1,3 +1,4 @@
+use crate::{config::AgentConfig, skills::Skills};
 use rig::Agent;
 use rig::memory::InMemoryConversationMemory;
 use rig::prelude::*;
@@ -43,21 +44,21 @@ Include assumptions that affect the result. Summarize the work without narrating
 tool call.
 "#;
 
-pub fn new(subagents: Vec<Agent>) -> Option<Agent> {
+pub fn new(config: &AgentConfig, subagents: Vec<Agent>) -> anyhow::Result<Agent> {
+    let skills = Skills::build(&config.skills)?;
     let tools: Vec<DynamicTool> = subagents
         .into_iter()
         .map(|agent| agent.into_tool())
         .collect();
-
-    let client = ollama::Client::from_env().ok()?;
+    let client = ollama::Client::from_env()?;
 
     let agent = client
-        .agent("gemma4")
+        .agent(&config.model)
         .memory(InMemoryConversationMemory::new())
         .preamble(PREAMBLE)
         .default_max_turns(50)
         .dynamic_tools(tools)
-        .build();
+        .tool(skills);
 
-    Some(agent)
+    Ok(agent.build())
 }

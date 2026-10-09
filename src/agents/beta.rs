@@ -2,7 +2,7 @@ use rig::memory::InMemoryConversationMemory;
 use rig::prelude::*;
 use rig::providers::ollama;
 
-use crate::tools::generate_uuid::GenerateUuid;
+use crate::{config::AgentConfig, skills::Skills, tools::generate_uuid::GenerateUuid};
 
 const NAME: &str = "Beta";
 
@@ -33,17 +33,16 @@ a single UUID, return only the UUID string from the tool. Report failures or inc
 work accurately, without narrating routine tool calls.
 "#;
 
-pub fn new() -> Option<rig::Agent> {
-    Some(
-        ollama::Client::from_env()
-            .ok()?
-            .agent("gemma4")
-            .name(NAME)
-            .description(DESCRIPTION)
-            .preamble(PREAMBLE)
-            .default_max_turns(50)
-            .memory(InMemoryConversationMemory::new())
-            .tool(GenerateUuid)
-            .build(),
-    )
+pub fn new(config: &AgentConfig) -> anyhow::Result<rig::Agent> {
+    let skills = Skills::build(&config.skills)?;
+    let agent = ollama::Client::from_env()?
+        .agent(&config.model)
+        .name(NAME)
+        .description(DESCRIPTION)
+        .preamble(PREAMBLE)
+        .default_max_turns(50)
+        .memory(InMemoryConversationMemory::new())
+        .tool(GenerateUuid)
+        .tool(skills);
+    Ok(agent.build())
 }

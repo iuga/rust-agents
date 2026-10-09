@@ -1,4 +1,5 @@
-use crate::{agents, rag::KnowledgeBase};
+use crate::{agents, config::AgentConfig, rag::KnowledgeBase};
+use anyhow::{Context, Result};
 use rig::completion::Prompt;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
@@ -7,7 +8,7 @@ use rmcp::{
     model::{ServerCapabilities, ServerInfo},
     schemars, tool, tool_handler, tool_router,
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct ChatArguments {
@@ -28,17 +29,27 @@ pub struct MCPServer {
 }
 
 impl MCPServer {
-    pub fn new(rag: Arc<dyn KnowledgeBase>) -> Self {
-        let beta = agents::beta::new().unwrap();
-        let gamma = agents::gamma::new(Arc::clone(&rag)).unwrap();
+    pub fn new(
+        rag: Arc<dyn KnowledgeBase>,
+        configs: &HashMap<String, AgentConfig>,
+    ) -> Result<Self> {
+        let config = |name: &str| {
+            configs
+                .get(name)
+                .with_context(|| format!("Missing agents.{name} configuration"))
+        };
+        let beta = agents::beta::new(config("beta")?).context("Failed to initialize Beta")?;
+        let gamma = agents::gamma::new(config("gamma")?, Arc::clone(&rag))
+            .context("Failed to initialize Gamma")?;
         let subagents = vec![beta, gamma];
 
-        let agent = agents::alpha::new(subagents).unwrap();
+        let agent = agents::alpha::new(config("alpha")?, subagents)
+            .context("Failed to initialize Alpha")?;
 
-        Self {
+        Ok(Self {
             tool_router: Self::tool_router(),
             agent,
-        }
+        })
     }
 }
 

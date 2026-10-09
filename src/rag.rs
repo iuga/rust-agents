@@ -138,13 +138,11 @@ impl Rag {
         tokio::spawn(async move {
             while let Some(msg) = rx_files.recv().await {
                 if let Ok(content) = fs::read_to_string(&msg.filename) {
-                    let fhash = Self::hasher(&msg.content);
+                    let fhash = Self::hasher(&content);
                     match storage_check.get_by_filename(&msg.filename).await {
                         Ok(stored_docs) => {
-                            for sdoc in stored_docs {
-                                if sdoc.hash == fhash {
-                                    continue;
-                                }
+                            if stored_docs.iter().any(|doc| doc.hash == fhash) {
+                                continue;
                             }
                             let msg = Message {
                                 filename: msg.filename.to_string(),
@@ -180,6 +178,7 @@ impl Rag {
                     };
                 }
             }
+            println!("[rag] Finished processing all content.");
         });
 
         Ok(())

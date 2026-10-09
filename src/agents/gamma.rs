@@ -4,7 +4,7 @@ use rig::memory::InMemoryConversationMemory;
 use rig::prelude::*;
 use rig::providers::ollama;
 
-use crate::{rag::KnowledgeBase, tools::knowledge::Knowledge};
+use crate::{config::AgentConfig, rag::KnowledgeBase, skills::Skills, tools::knowledge::Knowledge};
 
 const NAME: &str = "Gamma";
 
@@ -72,17 +72,16 @@ parts of the request. Do not narrate routine searches or claim to have read more
 tool returned. Never use emojis unless they appear in the source content being reproduced.
 "#;
 
-pub fn new(rag: Arc<dyn KnowledgeBase>) -> Option<rig::Agent> {
-    Some(
-        ollama::Client::from_env()
-            .ok()?
-            .agent("gemma4")
-            .name(NAME)
-            .description(DESCRIPTION)
-            .preamble(PREAMBLE)
-            .default_max_turns(5)
-            .memory(InMemoryConversationMemory::new())
-            .tool(Knowledge::new(rag))
-            .build(),
-    )
+pub fn new(config: &AgentConfig, rag: Arc<dyn KnowledgeBase>) -> anyhow::Result<rig::Agent> {
+    let skills = Skills::build(&config.skills)?;
+    let agent = ollama::Client::from_env()?
+        .agent(&config.model)
+        .name(NAME)
+        .description(DESCRIPTION)
+        .preamble(PREAMBLE)
+        .default_max_turns(5)
+        .memory(InMemoryConversationMemory::new())
+        .tool(Knowledge::new(rag))
+        .tool(skills);
+    Ok(agent.build())
 }

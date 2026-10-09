@@ -9,6 +9,7 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let settings = Settings::build()?;
+    let server = Server::new(settings.server.host, settings.agents)?;
     // println!("[config] {:?}", settings);
 
     let storage = Storage::build(&settings.knowledge.database_uri).await;
@@ -41,7 +42,7 @@ async fn main() -> Result<(), anyhow::Error> {
     );
     let _ = rag.keep_fresh().await;
 
-    Server::new(settings.server.host).mcp(Arc::new(rag)).await?;
+    server.mcp(Arc::new(rag)).await?;
 
     Ok(())
 }
