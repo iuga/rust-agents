@@ -2,6 +2,15 @@
 name = "rust-agent"
 version = "0.1.0"
 edition = "2024"
+default-run = "rust-agent"
+
+[features]
+desktop = ["dep:gpui-kit", "dep:tray-icon", "dep:resvg", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
+
+[[bin]]
+name = "chat"
+path = "src/bin/chat.rs"
+required-features = ["desktop"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -30,3 +39,11 @@ serde_arrow = { version = "0.15.1", features = ["arrow-58"] }
 chrono = "0.4.45"
 config = "0.15.26"
 chunkedrs = "2.1.1"
+gpui-kit = { version = "0.7.3", optional = true }
+tray-icon = { version = "0.26.1", optional = true }
+resvg = { version = "0.46", default-features = false, optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSImage"], optional = true }
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSData"], optional = true }

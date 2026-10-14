@@ -11,6 +11,10 @@ build: ## Build the binary
 run: ## Run the Agent framework
 	cargo run
 
+.PHONY: chat
+chat: ## Open the Alpha desktop chat
+	cargo run --features desktop --bin chat
+
 .PHONY: inspector
 inspector: ## Run the MCP inspector
 	npx @modelcontextprotocol/inspector

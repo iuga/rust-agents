@@ -54,6 +54,33 @@ impl KnowledgeBase for Rag {
 }
 
 impl Rag {
+    pub async fn build(config: crate::config::Knowledge) -> Result<Self> {
+        use rig::{prelude::*, providers::ollama};
+
+        Regex::new(&config.include).context("Invalid knowledge.include regex")?;
+        Regex::new(&config.exclude).context("Invalid knowledge.exclude regex")?;
+        let storage = Storage::build(&config.database_uri)
+            .await
+            .context("Failed to connect to the knowledge database")?;
+        let client = ollama::Client::from_env()?;
+        let model = client.embedding_model(&config.model);
+        let embed = move |text: &str| {
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(async { model.embed_text(text).await.expect("Embedding failed").vec })
+            })
+        };
+        let mut rag = Self::new(
+            config.folders,
+            &config.include,
+            &config.exclude,
+            storage,
+            Box::new(embed),
+        );
+        rag.keep_fresh().await?;
+        Ok(rag)
+    }
+
     pub fn new(
         paths: Vec<String>,
         include: &str,

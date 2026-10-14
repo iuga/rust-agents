@@ -1,5 +1,5 @@
 use crate::{agents, config::AgentConfig, rag::KnowledgeBase};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use rig::completion::Prompt;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
@@ -33,18 +33,7 @@ impl MCPServer {
         rag: Arc<dyn KnowledgeBase>,
         configs: &HashMap<String, AgentConfig>,
     ) -> Result<Self> {
-        let config = |name: &str| {
-            configs
-                .get(name)
-                .with_context(|| format!("Missing agents.{name} configuration"))
-        };
-        let beta = agents::beta::new(config("beta")?).context("Failed to initialize Beta")?;
-        let gamma = agents::gamma::new(config("gamma")?, Arc::clone(&rag))
-            .context("Failed to initialize Gamma")?;
-        let subagents = vec![beta, gamma];
-
-        let agent = agents::alpha::new(config("alpha")?, subagents)
-            .context("Failed to initialize Alpha")?;
+        let agent = agents::build(configs, rag)?;
 
         Ok(Self {
             tool_router: Self::tool_router(),
