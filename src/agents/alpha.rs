@@ -1,9 +1,8 @@
-use crate::{config::AgentConfig, skills::Skills};
+use crate::{config::AgentConfig, skills::Skills, tools::InternalTools};
 use rig::Agent;
 use rig::memory::InMemoryConversationMemory;
 use rig::prelude::*;
 use rig::providers::ollama;
-use rig::tool::DynamicTool;
 
 const PREAMBLE: &str = r#"## Role and scope
 You are a specialist agent for the company's business domain, systems, and processes.
@@ -46,10 +45,10 @@ tool call.
 
 pub fn new(config: &AgentConfig, subagents: Vec<Agent>) -> anyhow::Result<Agent> {
     let skills = Skills::build(&config.skills)?;
-    let tools: Vec<DynamicTool> = subagents
-        .into_iter()
-        .map(|agent| agent.into_tool())
-        .collect();
+    let mut tools = InternalTools::default();
+    for agent in subagents {
+        tools = tools.dynamic_tool(agent.into_tool());
+    }
     let client = ollama::Client::from_env()?;
 
     let agent = client
@@ -57,8 +56,7 @@ pub fn new(config: &AgentConfig, subagents: Vec<Agent>) -> anyhow::Result<Agent>
         .memory(InMemoryConversationMemory::new())
         .preamble(PREAMBLE)
         .default_max_turns(50)
-        .dynamic_tools(tools)
-        .tool(skills);
+        .dynamic_tools(tools.tool(skills).into_tools()?);
 
     Ok(agent.build())
 }

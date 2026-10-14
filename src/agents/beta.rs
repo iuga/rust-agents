@@ -2,7 +2,11 @@ use rig::memory::InMemoryConversationMemory;
 use rig::prelude::*;
 use rig::providers::ollama;
 
-use crate::{config::AgentConfig, skills::Skills, tools::generate_uuid::GenerateUuid};
+use crate::{
+    config::AgentConfig,
+    skills::Skills,
+    tools::{InternalTools, generate_uuid::GenerateUuid},
+};
 
 const NAME: &str = "Beta";
 
@@ -23,9 +27,9 @@ If a task requires an unavailable tool, explain which capability is missing.
 
 ## UUID generation
 Call `generate-uuid` for every new UUID requested, including follow-up requests.
-The tool takes no arguments and generates UUID v7 only. Never fabricate a UUID,
-reuse a previous UUID for a new request, or alter a generated value. If another
-version is explicitly requested, explain that only v7 is supported.
+Supply an intent explaining why you are calling the tool; it generates UUID v7 only.
+Never fabricate a UUID, reuse a previous UUID for a new request, or alter a generated
+value. If another version is explicitly requested, explain that only v7 is supported.
 
 ## Response
 Return a concise result in the caller's requested format. For a request to generate
@@ -35,6 +39,7 @@ work accurately, without narrating routine tool calls.
 
 pub fn new(config: &AgentConfig) -> anyhow::Result<rig::Agent> {
     let skills = Skills::build(&config.skills)?;
+    let tools = InternalTools::default().tool(GenerateUuid).tool(skills);
     let agent = ollama::Client::from_env()?
         .agent(&config.model)
         .name(NAME)
@@ -42,7 +47,6 @@ pub fn new(config: &AgentConfig) -> anyhow::Result<rig::Agent> {
         .preamble(PREAMBLE)
         .default_max_turns(50)
         .memory(InMemoryConversationMemory::new())
-        .tool(GenerateUuid)
-        .tool(skills);
+        .dynamic_tools(tools.into_tools()?);
     Ok(agent.build())
 }

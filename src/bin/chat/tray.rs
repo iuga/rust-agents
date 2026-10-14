@@ -31,13 +31,37 @@ fn bot_image(size: u32) -> Result<resvg::tiny_skia::Pixmap> {
 }
 
 #[cfg(target_os = "macos")]
+fn app_image() -> Result<resvg::tiny_skia::Pixmap> {
+    let tree = resvg::usvg::Tree::from_data(
+        include_bytes!("app-icon-background.svg"),
+        &resvg::usvg::Options::default(),
+    )?;
+    let mut image = resvg::tiny_skia::Pixmap::new(512, 512).context("Cannot allocate app icon")?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::identity(),
+        &mut image.as_mut(),
+    );
+    let bot = bot_image(280)?;
+    image.draw_pixmap(
+        116,
+        116,
+        bot.as_ref(),
+        &resvg::tiny_skia::PixmapPaint::default(),
+        resvg::tiny_skia::Transform::identity(),
+        None,
+    );
+    Ok(image)
+}
+
+#[cfg(target_os = "macos")]
 pub fn set_app_icon() -> Result<()> {
     use objc2::{AllocAnyThread, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSImage};
     use objc2_foundation::NSData;
 
     let main_thread = MainThreadMarker::new().context("App icon must be set on the main thread")?;
-    let png = bot_image(512)?.encode_png()?;
+    let png = app_image()?.encode_png()?;
     let image = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(&png))
         .context("Cannot create macOS app icon")?;
     // AppKit requires an image owned for the duration of this main-thread call.
@@ -78,5 +102,36 @@ mod tests {
     #[test]
     fn bundled_bot_can_be_rendered_for_the_tray() {
         assert!(super::bot_icon().is_ok());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_icon_has_white_background_black_symbol_and_transparent_corners() {
+        let image = super::app_image().unwrap();
+        assert_eq!((image.width(), image.height()), (512, 512));
+        for (x, y) in [(0, 0), (511, 511), (50, 50), (461, 461)] {
+            assert_eq!(image.pixel(x, y).unwrap().alpha(), 0);
+        }
+        let white = resvg::tiny_skia::PremultipliedColorU8::from_rgba(255, 255, 255, 255).unwrap();
+        for (x, y) in [(256, 80), (80, 256), (431, 256), (256, 431)] {
+            assert_eq!(image.pixel(x, y).unwrap(), white);
+        }
+        let black = resvg::tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, 255).unwrap();
+        let mut bounds = (512, 512, 0, 0);
+        for y in 0..512 {
+            for x in 0..512 {
+                if image.pixel(x, y).unwrap() == black {
+                    bounds = (
+                        bounds.0.min(x),
+                        bounds.1.min(y),
+                        bounds.2.max(x),
+                        bounds.3.max(y),
+                    );
+                }
+            }
+        }
+        assert!(bounds.0 < bounds.2 && bounds.1 < bounds.3);
+        assert!((bounds.0 + bounds.2).abs_diff(511) <= 2);
+        assert!((bounds.1 + bounds.3).abs_diff(511) <= 2);
     }
 }

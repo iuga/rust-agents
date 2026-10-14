@@ -4,7 +4,12 @@ use rig::memory::InMemoryConversationMemory;
 use rig::prelude::*;
 use rig::providers::ollama;
 
-use crate::{config::AgentConfig, rag::KnowledgeBase, skills::Skills, tools::knowledge::Knowledge};
+use crate::{
+    config::AgentConfig,
+    rag::KnowledgeBase,
+    skills::Skills,
+    tools::{InternalTools, knowledge::Knowledge},
+};
 
 const NAME: &str = "Gamma";
 
@@ -74,6 +79,9 @@ tool returned. Never use emojis unless they appear in the source content being r
 
 pub fn new(config: &AgentConfig, rag: Arc<dyn KnowledgeBase>) -> anyhow::Result<rig::Agent> {
     let skills = Skills::build(&config.skills)?;
+    let tools = InternalTools::default()
+        .tool(Knowledge::new(rag))
+        .tool(skills);
     let agent = ollama::Client::from_env()?
         .agent(&config.model)
         .name(NAME)
@@ -81,7 +89,6 @@ pub fn new(config: &AgentConfig, rag: Arc<dyn KnowledgeBase>) -> anyhow::Result<
         .preamble(PREAMBLE)
         .default_max_turns(5)
         .memory(InMemoryConversationMemory::new())
-        .tool(Knowledge::new(rag))
-        .tool(skills);
+        .dynamic_tools(tools.into_tools()?);
     Ok(agent.build())
 }

@@ -1,4 +1,4 @@
-use std::{panic::AssertUnwindSafe, sync::Arc};
+use std::{collections::HashSet, panic::AssertUnwindSafe, sync::Arc};
 
 use futures::{FutureExt, StreamExt};
 use rig::{
@@ -14,25 +14,11 @@ use tokio::sync::mpsc;
 #[derive(Debug)]
 pub enum Event {
     Ready(String),
-    Text {
-        turn: usize,
-        text: String,
-    },
-    ToolStarted {
-        id: String,
-        name: String,
-        args: String,
-    },
-    ToolFinished {
-        id: String,
-        output: String,
-        failed: bool,
-    },
+    Text { turn: usize, text: String },
+    ToolStarted { id: String, args: String },
+    ToolFinished { id: String },
     Retried(usize),
-    Finished {
-        turn: usize,
-        output: String,
-    },
+    Finished { turn: usize, output: String },
     Failed(String),
     Unavailable(String),
 }
@@ -58,7 +44,6 @@ impl AgentHook for ToolHook {
     async fn on_tool_call(&self, _: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
         let event = Event::ToolStarted {
             id: event.internal_call_id.into(),
-            name: event.tool_name.into(),
             args: event.args.into(),
         };
         if self.0.send(event).await.is_err() {
@@ -72,15 +57,8 @@ impl AgentHook for ToolHook {
         _: &HookContext,
         event: ToolResultEvent<'_>,
     ) -> ToolResultAction {
-        let output = event
-            .raw_result
-            .error()
-            .map(|error| error.to_string())
-            .unwrap_or_else(|| event.presentation.render());
         let event = Event::ToolFinished {
             id: event.internal_call_id.into(),
-            output,
-            failed: event.raw_result.is_error(),
         };
         if self.0.send(event).await.is_err() {
             return ToolResultAction::stop("Chat closed");
@@ -174,14 +152,6 @@ pub async fn run(mut requests: mpsc::Receiver<String>, events: mpsc::Sender<Even
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum ToolStatus {
-    Running,
-    Completed,
-    Failed,
-    Interrupted,
-}
-
 #[derive(Debug)]
 pub enum Entry {
     User(String),
@@ -189,13 +159,10 @@ pub enum Entry {
         turn: usize,
         text: String,
     },
-    Tool {
+    ToolIntent {
         id: String,
-        name: String,
-        args: String,
-        output: String,
-        status: ToolStatus,
-        expanded: bool,
+        intent: String,
+        running: bool,
     },
 }
 
@@ -206,6 +173,8 @@ pub struct Conversation {
     pub ready: bool,
     pub model: String,
     pub error: Option<String>,
+    streaming_turn: Option<usize>,
+    running_tools: HashSet<String>,
     request_start: usize,
 }
 
@@ -215,6 +184,12 @@ impl Conversation {
         self.request_start = self.entries.len();
         self.busy = true;
         self.error = None;
+        self.streaming_turn = None;
+        self.running_tools.clear();
+    }
+
+    pub fn show_thinking(&self) -> bool {
+        self.busy && self.streaming_turn.is_none() && self.running_tools.is_empty()
     }
 
     pub fn apply(&mut self, event: Event) {
@@ -224,6 +199,10 @@ impl Conversation {
                 self.model = model;
             }
             Event::Text { turn, text } => {
+                if text.is_empty() {
+                    return;
+                }
+                self.streaming_turn = Some(turn);
                 if let Some(Entry::Assistant { text: current, .. }) = self.entries
                     [self.request_start..]
                     .iter_mut()
@@ -234,32 +213,34 @@ impl Conversation {
                     self.entries.push(Entry::Assistant { turn, text });
                 }
             }
-            Event::ToolStarted { id, name, args } => self.entries.push(Entry::Tool {
-                id,
-                name,
-                args,
-                output: String::new(),
-                status: ToolStatus::Running,
-                expanded: false,
-            }),
-            Event::ToolFinished { id, output, failed } => {
-                if let Some(Entry::Tool {
-                    output: result,
-                    status,
-                    ..
-                }) = self.entries[self.request_start..]
-                    .iter_mut()
-                    .find(|entry| matches!(entry, Entry::Tool { id: call, .. } if call == &id))
+            Event::ToolStarted { id, args } => {
+                self.streaming_turn = None;
+                self.running_tools.insert(id.clone());
+                if let Ok(args) = serde_json::from_str::<serde_json::Value>(&args)
+                    && let Some(intent) = args.get("intent").and_then(|value| value.as_str())
+                    && !intent.trim().is_empty()
                 {
-                    *result = output;
-                    *status = if failed {
-                        ToolStatus::Failed
-                    } else {
-                        ToolStatus::Completed
-                    };
+                    self.entries.push(Entry::ToolIntent {
+                        id,
+                        intent: intent.to_owned(),
+                        running: true,
+                    });
+                }
+            }
+            Event::ToolFinished { id } => {
+                self.running_tools.remove(&id);
+                if let Some(Entry::ToolIntent { running, .. }) =
+                    self.entries[self.request_start..].iter_mut().find(
+                        |entry| matches!(entry, Entry::ToolIntent { id: call, .. } if call == &id),
+                    )
+                {
+                    *running = false;
                 }
             }
             Event::Retried(turn) => {
+                if self.streaming_turn == Some(turn) {
+                    self.streaming_turn = None;
+                }
                 let start = self.request_start;
                 let mut index = 0;
                 self.entries.retain(|entry| {
@@ -295,11 +276,11 @@ impl Conversation {
 
     fn finish(&mut self) {
         self.busy = false;
+        self.streaming_turn = None;
+        self.running_tools.clear();
         for entry in &mut self.entries[self.request_start..] {
-            if let Entry::Tool { status, .. } = entry
-                && *status == ToolStatus::Running
-            {
-                *status = ToolStatus::Interrupted;
+            if let Entry::ToolIntent { running, .. } = entry {
+                *running = false;
             }
         }
     }
@@ -343,45 +324,127 @@ mod tests {
     }
 
     #[test]
-    fn repeated_tools_match_by_id_and_unfinished_tools_become_interrupted() {
+    fn tool_intents_keep_separate_rows_and_finish_by_id() {
         let mut chat = Conversation::default();
         chat.start("Use tools".into());
-        for id in ["a", "b", "c"] {
+        assert!(chat.show_thinking());
+        for args in ["{}", "not json", r#"{"intent":42}"#, r#"{"intent":"  "}"#] {
             chat.apply(Event::ToolStarted {
-                id: id.into(),
-                name: "Beta".into(),
-                args: "{}".into(),
+                id: "no-intent".into(),
+                args: args.into(),
             });
+            assert_eq!(chat.entries.len(), 1);
+            assert!(!chat.show_thinking());
+            chat.apply(Event::ToolFinished {
+                id: "no-intent".into(),
+            });
+            assert!(chat.show_thinking());
         }
-        chat.apply(Event::ToolFinished {
-            id: "b".into(),
-            output: "second".into(),
-            failed: false,
-        });
-        chat.apply(Event::ToolFinished {
+        chat.apply(Event::ToolStarted {
             id: "a".into(),
-            output: "error".into(),
-            failed: true,
+            args: r#"{"intent":"Fetching documentation"}"#.into(),
         });
-        chat.apply(Event::Failed("connection lost".into()));
+        chat.apply(Event::ToolStarted {
+            id: "b".into(),
+            args: r#"{"intent":"Generating a UUID"}"#.into(),
+        });
+        assert!(!chat.show_thinking());
+        assert!(
+            matches!(&chat.entries[1], Entry::ToolIntent { intent, running: true, .. } if intent == "Fetching documentation")
+        );
+        assert!(
+            matches!(&chat.entries[2], Entry::ToolIntent { intent, running: true, .. } if intent == "Generating a UUID")
+        );
+        chat.apply(Event::ToolFinished { id: "b".into() });
+        assert!(!chat.show_thinking());
+        chat.apply(Event::ToolFinished { id: "b".into() });
+        assert!(!chat.show_thinking());
         assert!(matches!(
             &chat.entries[1],
-            Entry::Tool {
-                status: ToolStatus::Failed,
-                ..
-            }
+            Entry::ToolIntent { running: true, .. }
         ));
-        assert!(
-            matches!(&chat.entries[2], Entry::Tool { output, status: ToolStatus::Completed, .. } if output == "second")
-        );
         assert!(matches!(
-            &chat.entries[3],
-            Entry::Tool {
-                status: ToolStatus::Interrupted,
-                ..
-            }
+            &chat.entries[2],
+            Entry::ToolIntent { running: false, .. }
         ));
-        assert!(!chat.busy);
-        assert_eq!(chat.error.as_deref(), Some("connection lost"));
+        chat.apply(Event::ToolFinished { id: "a".into() });
+        assert!(matches!(
+            &chat.entries[1],
+            Entry::ToolIntent { running: false, .. }
+        ));
+        assert!(chat.show_thinking());
+        assert_eq!(chat.entries.len(), 3);
+    }
+
+    #[test]
+    fn ending_a_request_stops_intent_spinners_and_preserves_rows() {
+        for event in [
+            Event::Finished {
+                turn: 1,
+                output: "Done".into(),
+            },
+            Event::Failed("connection lost".into()),
+            Event::Unavailable("worker stopped".into()),
+        ] {
+            let mut chat = Conversation::default();
+            chat.start("Use tools".into());
+            chat.apply(Event::ToolStarted {
+                id: "a".into(),
+                args: r#"{"intent":"Fetching documentation"}"#.into(),
+            });
+            chat.apply(event);
+            assert!(!chat.busy);
+            assert!(!chat.show_thinking());
+            assert!(matches!(
+                &chat.entries[1],
+                Entry::ToolIntent { running: false, .. }
+            ));
+            chat.start("Again".into());
+            assert!(chat.show_thinking());
+            assert!(matches!(
+                &chat.entries[1],
+                Entry::ToolIntent { running: false, .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn thinking_returns_after_retries_or_the_last_tool_until_streaming() {
+        let mut chat = Conversation::default();
+        chat.start("Hello".into());
+        chat.apply(Event::Text {
+            turn: 1,
+            text: String::new(),
+        });
+        assert!(chat.show_thinking());
+        chat.apply(Event::Text {
+            turn: 1,
+            text: "Searching".into(),
+        });
+        assert!(!chat.show_thinking());
+        chat.apply(Event::Retried(1));
+        assert!(chat.show_thinking());
+        chat.apply(Event::Text {
+            turn: 2,
+            text: "Searching again".into(),
+        });
+        chat.apply(Event::ToolStarted {
+            id: "a".into(),
+            args: r#"{"intent":"Fetching documentation"}"#.into(),
+        });
+        assert!(!chat.show_thinking());
+        chat.apply(Event::ToolFinished { id: "a".into() });
+        assert!(chat.show_thinking());
+        chat.apply(Event::Text {
+            turn: 3,
+            text: "Here is the answer".into(),
+        });
+        assert!(!chat.show_thinking());
+        assert!(chat.busy);
+        assert!(matches!(
+            &chat.entries[2],
+            Entry::ToolIntent { running: false, .. }
+        ));
+        assert!(matches!(&chat.entries[3], Entry::Assistant { turn: 3, .. }));
     }
 }

@@ -19,8 +19,46 @@ use gpui_kit::{
     prelude::*,
     *,
 };
-use session::{Conversation, Entry, Event, ToolStatus};
+use session::{Conversation, Entry, Event};
+use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
+
+const EMPTY_CHAT_QUOTES: [&str; 10] = [
+    "What shall we make clearer today?",
+    "Bring me a thought, I’ll bring a plan",
+    "What deserves your attention next?",
+    "Ready when your next idea is",
+    "What can I help untangle?",
+    "Start anywhere, we’ll shape it together",
+    "Where does today's thinking begin?",
+    "Drop a rough idea, we'll sharpen it",
+    "What's been sitting in the back of your mind?",
+    "What are you curious about right now?",
+];
+
+fn empty_chat_quote(date: chrono::NaiveDate) -> &'static str {
+    let hash = Sha256::digest(date.to_string().as_bytes());
+    let seed = u64::from_be_bytes(hash[..8].try_into().expect("SHA-256 has at least 8 bytes"));
+    EMPTY_CHAT_QUOTES[(seed % EMPTY_CHAT_QUOTES.len() as u64) as usize]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::empty_chat_quote;
+
+    #[test]
+    fn welcome_quote_is_stable_for_each_calendar_date() {
+        for (date, expected) in [
+            ("2026-10-14", "What can I help untangle?"),
+            ("2026-10-15", "What deserves your attention next?"),
+            ("2026-12-31", "Ready when your next idea is"),
+            ("2027-01-01", "Drop a rough idea, we'll sharpen it"),
+        ] {
+            let date = date.parse::<chrono::NaiveDate>().unwrap();
+            assert_eq!(empty_chat_quote(date), expected);
+        }
+    }
+}
 
 gpui_kit::actions!(chat, [Quit, HideChat, OpenChat]);
 
@@ -140,7 +178,6 @@ impl Chat {
     }
 
     fn render_entry(&self, index: usize, entry: &Entry, cx: &mut Context<Self>) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         let border = cx.theme().border;
         let card = div()
             .group("chat-entry")
@@ -188,84 +225,28 @@ impl Chat {
                     )
                     .into_any_element()
             }
-            Entry::Tool {
-                name,
-                args,
-                output,
-                status,
-                expanded,
-                ..
-            } => {
-                let (label, icon) = match status {
-                    ToolStatus::Running => ("Running", IconName::LoaderCircle),
-                    ToolStatus::Completed => ("Completed", IconName::CircleCheck),
-                    ToolStatus::Failed => ("Failed", IconName::CircleX),
-                    ToolStatus::Interrupted => ("Interrupted", IconName::TriangleAlert),
-                };
-                let color = if matches!(status, ToolStatus::Failed | ToolStatus::Interrupted) {
-                    cx.theme().danger
+            Entry::ToolIntent {
+                intent, running, ..
+            } => div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_4()
+                .flex_shrink_0()
+                .text_size(px(13.))
+                .text_color(cx.theme().muted_foreground)
+                .child(div().flex_shrink_0().child(if *running {
+                    Spinner::new()
+                        .small()
+                        .icon(Icon::default().data(include_bytes!("chat/loader.svg")))
+                        .into_any_element()
                 } else {
-                    muted
-                };
-                card.border_1()
-                    .border_color(border)
-                    .child(
-                        Button::new(("tool", index))
-                            .ghost()
-                            .w_full()
-                            .icon(icon)
-                            .label(format!(
-                                "{}  ·  {}  {}",
-                                name,
-                                label,
-                                if *expanded { "▾" } else { "▸" }
-                            ))
-                            .text_color(color)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Entry::Tool { expanded, .. } =
-                                    &mut this.conversation.entries[index]
-                                {
-                                    *expanded = !*expanded;
-                                    cx.notify();
-                                }
-                            })),
-                    )
-                    .when(*expanded, |card| {
-                        let details =
-                            format!("Arguments\n{}\n\nResult\n{}", pretty_json(args), output);
-                        let copy = details.clone();
-                        card.child(div().text_sm().whitespace_normal().child(details))
-                            .child(
-                                div()
-                                    .id(("copy-tool-hover", index))
-                                    .opacity(0.)
-                                    .group_hover("chat-entry", |style| style.opacity(1.))
-                                    .in_focus(|style| style.opacity(1.))
-                                    .child(
-                                        Button::new(("copy-tool", index))
-                                            .ghost()
-                                            .small()
-                                            .icon(IconName::Copy)
-                                            .label("Copy details")
-                                            .on_click(move |_, _, cx| {
-                                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                                    copy.clone(),
-                                                ))
-                                            }),
-                                    ),
-                            )
-                    })
-                    .into_any_element()
-            }
+                    Icon::new(IconName::Search).small().into_any_element()
+                }))
+                .child(div().min_w_0().whitespace_normal().child(intent.clone()))
+                .into_any_element(),
         }
     }
-}
-
-fn pretty_json(text: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(text)
-        .ok()
-        .and_then(|value| serde_json::to_string_pretty(&value).ok())
-        .unwrap_or_else(|| text.into())
 }
 
 impl Render for Chat {
@@ -305,9 +286,15 @@ impl Render for Chat {
                     .when(self.conversation.entries.is_empty(), |view| {
                         view.child(
                             div()
+                                .flex()
+                                .flex_1()
+                                .items_center()
+                                .justify_center()
                                 .p_5()
+                                .text_center()
+                                .whitespace_normal()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("Ask Alpha a question or give it a task."),
+                                .child(empty_chat_quote(chrono::Local::now().date_naive())),
                         )
                     })
                     .children(
@@ -317,21 +304,21 @@ impl Render for Chat {
                             .enumerate()
                             .map(|(index, entry)| self.render_entry(index, entry, cx)),
                     )
-                    .when(self.conversation.busy, |view| {
+                    .when(self.conversation.show_thinking(), |view| {
                         view.child(
                             div()
                                 .flex()
                                 .items_center()
                                 .gap_2()
                                 .px_4()
-                                .text_sm()
+                                .text_size(px(13.))
                                 .text_color(cx.theme().muted_foreground)
                                 .child(
                                     Spinner::new().small().icon(
                                         Icon::default().data(include_bytes!("chat/loader.svg")),
                                     ),
                                 )
-                                .child("Alpha is working…"),
+                                .child(div().min_w_0().whitespace_normal().child("Thinking...")),
                         )
                     }),
             )
