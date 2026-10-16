@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use gpui_kit::{AssetSource, assets::Assets};
 use tokio::sync::mpsc;
 use tray_icon::{
-    Icon, TrayIcon, TrayIconBuilder,
+    Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
 };
 
@@ -81,7 +81,22 @@ pub fn create(commands: mpsc::UnboundedSender<Command>) -> Result<TrayIcon> {
         .with_tooltip("Alpha")
         .with_icon_templated(bot_icon()?)
         .with_menu(Box::new(menu))
+        .with_menu_on_left_click(false)
         .build()?;
+    let tray_id = tray.id().clone();
+    let click_commands = commands.clone();
+    TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
+        if let TrayIconEvent::Click {
+            id,
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+        } = event
+            && id == tray_id
+        {
+            let _ = click_commands.send(Command::Open);
+        }
+    }));
     let open_id = open.id().clone();
     let quit_id = quit.id().clone();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
